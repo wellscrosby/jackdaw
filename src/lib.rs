@@ -46,7 +46,9 @@ pub mod migrate_dialog;
 
 use std::{collections::BTreeMap, marker::PhantomData};
 
-pub use inspector::{EditorCategory, EditorDescription, EditorHidden, SkipSerialization};
+pub use inspector::{
+    EditorCategory, EditorDescription, EditorHidden, EditorPreview, SkipSerialization,
+};
 
 pub mod camera_preview;
 pub mod core_extension;
@@ -100,6 +102,7 @@ pub mod scaffold;
 pub mod scene_io;
 pub mod scene_ops;
 pub mod scenes;
+pub mod schema_preview;
 pub mod screenshot;
 pub mod scrolling_log;
 pub mod sdk_paths;
@@ -152,7 +155,7 @@ pub mod prelude {
     pub use crate::windowing::{editor_window_plugin, primary_window_attributes};
     pub use crate::{
         AppState, DylibLoaderPlugin, EditorCategory, EditorCorePlugin, EditorDescription,
-        EditorHidden, ExtensionPlugin, JackdawEditorPlugins, SkipSerialization,
+        EditorHidden, EditorPreview, ExtensionPlugin, JackdawEditorPlugins, SkipSerialization,
     };
     pub use jackdaw_api::prelude::*;
 
@@ -335,6 +338,7 @@ impl Plugin for EditorCorePlugin {
         .add_plugins(keybind_settings::KeybindSettingsPlugin)
         .add_plugins((
             viewport_overlays::ViewportOverlaysPlugin,
+            schema_preview::SchemaPreviewPlugin,
             view_modes::ViewModesPlugin,
             status_bar::StatusBarPlugin,
             build_panel::BuildPanelPlugin,
