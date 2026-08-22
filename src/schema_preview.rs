@@ -11,7 +11,6 @@ use bevy::prelude::*;
 use bevy::world_serialization::WorldAssetRoot;
 use jackdaw_bsn::{AstNodeRef, SceneBsnAst};
 use jackdaw_scene_types::{Brush, GltfSource};
-use jackdaw_schema::PreviewSchema;
 
 use crate::project_types::ProjectTypes;
 use crate::{AppState, EditorEntity, EditorHidden, NonSerializable, SkipSerialization};
@@ -19,7 +18,7 @@ use crate::{AppState, EditorEntity, EditorHidden, NonSerializable, SkipSerializa
 /// Child spawned under a marker so viewport clicks hit the preview visual.
 #[derive(Component)]
 pub(crate) struct SchemaPreview {
-    spec: PreviewSchema,
+    path: String,
 }
 
 pub struct SchemaPreviewPlugin;
@@ -55,7 +54,7 @@ fn sync_schema_previews(
         return;
     };
 
-    let mut desired: HashMap<Entity, PreviewSchema> = HashMap::default();
+    let mut desired: HashMap<Entity, String> = HashMap::default();
     for (entity, ast_ref) in &hosts {
         if has_authored_visual(entity, &brushes, &gltf_sources, &mesh3d) {
             continue;
@@ -70,7 +69,7 @@ fn sync_schema_previews(
     for (preview_entity, child_of, preview) in &existing {
         let host = child_of.0;
         match desired.get(&host) {
-            Some(spec) if spec == &preview.spec => {
+            Some(path) if path == &preview.path => {
                 satisfied.insert(host, preview_entity);
             }
             _ => {
@@ -91,13 +90,14 @@ fn preview_for_node(
     ast: &SceneBsnAst,
     node: Entity,
     project_types: &ProjectTypes,
-) -> Option<PreviewSchema> {
+) -> Option<String> {
     for type_path in ast.component_type_paths(node) {
-        if let Some(preview) = project_types
+        if let Some(path) = project_types
             .component(&type_path)
-            .and_then(|schema| schema.preview.clone())
+            .map(|schema| schema.preview.as_str())
+            .filter(|path| !path.is_empty())
         {
-            return Some(preview);
+            return Some(path.to_string());
         }
     }
     None
@@ -112,15 +112,10 @@ fn has_authored_visual(
     brushes.contains(entity) || gltf_sources.contains(entity) || mesh3d.contains(entity)
 }
 
-fn spawn_preview(
-    commands: &mut Commands,
-    asset_server: &AssetServer,
-    host: Entity,
-    spec: PreviewSchema,
-) {
-    let handle = asset_server.load(GltfAssetLabel::Scene(0).from_asset(spec.path.clone()));
+fn spawn_preview(commands: &mut Commands, asset_server: &AssetServer, host: Entity, path: String) {
+    let handle = asset_server.load(GltfAssetLabel::Scene(0).from_asset(path.clone()));
     commands.spawn((
-        SchemaPreview { spec },
+        SchemaPreview { path },
         EditorHidden,
         NonSerializable,
         SkipSerialization,

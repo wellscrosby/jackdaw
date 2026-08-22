@@ -165,15 +165,11 @@ impl From<String> for EditorDescription {
 /// The editor instances this from the project schema. Nothing is
 /// written into the scene file. Play never sees it.
 #[derive(Reflect, Clone, Debug, PartialEq)]
-pub struct EditorPreview {
-    pub path: Cow<'static, str>,
-}
+pub struct EditorPreview(pub Cow<'static, str>);
 
 impl EditorPreview {
     pub const fn gltf(path: &'static str) -> Self {
-        Self {
-            path: Cow::Borrowed(path),
-        }
+        EditorPreview(Cow::Borrowed(path))
     }
 }
 

@@ -84,10 +84,9 @@ pub struct TypeSchema {
     pub description: String,
     /// `@EditorHidden`: skip in the picker.
     pub hidden: bool,
-    /// `@EditorPreview`: viewport overlay the editor instances for
-    /// marker components. Absent when the type has no preview.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preview: Option<PreviewSchema>,
+    /// `@EditorPreview` glTF path under `assets/`, or empty.
+    #[serde(default)]
+    pub preview: String,
     /// Whether a default value could be constructed (picker requires it).
     pub default_constructible: bool,
     /// The type's fields (empty for unit/opaque/enum kinds).
@@ -106,13 +105,6 @@ pub struct FieldSchema {
     pub name: String,
     /// The field's reflect type path.
     pub type_path: String,
-}
-
-/// Viewport overlay for a project component, copied from
-/// [`jackdaw_scene_types::EditorPreview`] at extract time.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PreviewSchema {
-    pub path: String,
 }
 
 /// The reflect kind of a schema'd type.
@@ -188,7 +180,8 @@ mod extract {
         let hidden = attrs.is_some_and(|a| a.get::<EditorHidden>().is_some());
         let preview = attrs
             .and_then(|a| a.get::<EditorPreview>())
-            .map(preview_schema_from);
+            .map(|p| p.0.to_string())
+            .unwrap_or_default();
 
         let (kind, fields) = kind_and_fields(info);
 
@@ -244,12 +237,6 @@ mod extract {
         }
     }
 
-    fn preview_schema_from(preview: &EditorPreview) -> PreviewSchema {
-        PreviewSchema {
-            path: preview.path.to_string(),
-        }
-    }
-
     fn custom_attributes(info: &TypeInfo) -> Option<&bevy::reflect::attributes::CustomAttributes> {
         match info {
             TypeInfo::Struct(s) => Some(s.custom_attributes()),
@@ -299,6 +286,6 @@ mod tests {
             "default":null
         }"#;
         let parsed: TypeSchema = serde_json::from_str(json).expect("old schema json");
-        assert!(parsed.preview.is_none());
+        assert!(parsed.preview.is_empty());
     }
 }
