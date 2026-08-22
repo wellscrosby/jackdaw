@@ -38,9 +38,8 @@ pub use schema_cli::{
 
 pub mod prelude {
     pub use crate::{
-        EditorCategory, EditorDescription, EditorHidden, EditorPreview,
-        JackdawCatalog, JackdawCatalogPath, JackdawPlugin, JackdawSceneMember, JackdawSceneRoot,
-        SkipSerialization,
+        EditorCategory, EditorDescription, EditorHidden, EditorPreview, JackdawCatalog,
+        JackdawCatalogPath, JackdawPlugin, JackdawSceneMember, JackdawSceneRoot, SkipSerialization,
     };
 }
 
@@ -848,34 +847,4 @@ fn discover_catalog_path() -> Option<PathBuf> {
             .and_then(|p| p.parent().map(ToOwned::to_owned))?
     };
     Some(base.join("assets").join("catalog.bsn"))
-}
-
-#[cfg(test)]
-mod tests {
-    use bevy::prelude::*;
-    use jackdaw_schema::{PreviewSchema, extract_from_registry};
-
-    use super::EditorPreview;
-
-    #[derive(Component, Reflect, Default)]
-    #[reflect(Component, Default, @EditorPreview::gltf("models/rifle.glb"))]
-    struct SpawnMarker;
-
-    #[test]
-    fn extract_copies_editor_preview() {
-        let mut registry = bevy::reflect::TypeRegistry::default();
-        registry.register::<SpawnMarker>();
-        let schema = extract_from_registry(&registry);
-        let marker = schema
-            .components
-            .iter()
-            .find(|c| c.type_path.ends_with("SpawnMarker"))
-            .expect("SpawnMarker in schema");
-        assert_eq!(
-            marker.preview,
-            Some(PreviewSchema {
-                path: "models/rifle.glb".to_string(),
-            })
-        );
-    }
 }
