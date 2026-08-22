@@ -1,7 +1,7 @@
 //! Viewport instances for project components tagged with `@EditorPreview`.
 
 use bevy::gltf::GltfAssetLabel;
-use bevy::platform::collections::HashMap;
+use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 use bevy::world_serialization::WorldAssetRoot;
 use jackdaw_bsn::{AstNodeRef, SceneBsnAst};
@@ -30,26 +30,17 @@ fn sync_schema_previews(
     ast: Option<Res<SceneBsnAst>>,
     project_types: Res<ProjectTypes>,
     asset_server: Res<AssetServer>,
-    hosts: Query<
-        (Entity, &AstNodeRef),
-        (
-            With<Transform>,
-            Without<EditorEntity>,
-            Without<SchemaPreview>,
-        ),
-    >,
+    hosts: Query<(Entity, &AstNodeRef), (With<Transform>, Without<EditorEntity>)>,
     existing: Query<(Entity, &ChildOf, &SchemaPreview)>,
-    brushes: Query<(), With<Brush>>,
-    gltf_sources: Query<(), With<GltfSource>>,
-    mesh3d: Query<(), With<Mesh3d>>,
+    authored_visuals: Query<(), Or<(With<Brush>, With<GltfSource>, With<Mesh3d>)>>,
 ) {
     let Some(ast) = ast else {
         return;
     };
 
-    let mut desired: HashMap<Entity, String> = HashMap::default();
+    let mut desired: HashMap<Entity, &str> = HashMap::default();
     for (entity, ast_ref) in &hosts {
-        if brushes.contains(entity) || gltf_sources.contains(entity) || mesh3d.contains(entity) {
+        if authored_visuals.contains(entity) {
             continue;
         }
         let Some(preview) = preview_for_node(&ast, ast_ref.patches_entity, &project_types) else {
@@ -58,12 +49,12 @@ fn sync_schema_previews(
         desired.insert(entity, preview);
     }
 
-    let mut satisfied: HashMap<Entity, Entity> = HashMap::default();
+    let mut satisfied: HashSet<Entity> = HashSet::default();
     for (preview_entity, child_of, preview) in &existing {
         let host = child_of.0;
         match desired.get(&host) {
-            Some(path) if path == &preview.0 => {
-                satisfied.insert(host, preview_entity);
+            Some(&path) if path == preview.0 => {
+                satisfied.insert(host);
             }
             _ => {
                 commands.entity(preview_entity).despawn();
@@ -72,31 +63,32 @@ fn sync_schema_previews(
     }
 
     for (host, spec) in desired {
-        if satisfied.contains_key(&host) {
+        if satisfied.contains(&host) {
             continue;
         }
         spawn_preview(&mut commands, &asset_server, host, spec);
     }
 }
 
-fn preview_for_node(
+fn preview_for_node<'a>(
     ast: &SceneBsnAst,
     node: Entity,
-    project_types: &ProjectTypes,
-) -> Option<String> {
+    project_types: &'a ProjectTypes,
+) -> Option<&'a str> {
     for type_path in ast.component_type_paths(node) {
-        if let Some(path) = project_types
-            .component(&type_path)
-            .map(|schema| schema.preview.as_str())
-            .filter(|path| !path.is_empty())
-        {
-            return Some(path.to_string());
+        let Some(schema) = project_types.component(&type_path) else {
+            continue;
+        };
+        let path = schema.preview.as_str();
+        if !path.is_empty() {
+            return Some(path);
         }
     }
     None
 }
 
-fn spawn_preview(commands: &mut Commands, asset_server: &AssetServer, host: Entity, path: String) {
+fn spawn_preview(commands: &mut Commands, asset_server: &AssetServer, host: Entity, path: &str) {
+    let path = path.to_string();
     let handle = asset_server.load(GltfAssetLabel::Scene(0).from_asset(path.clone()));
     commands.spawn((
         SchemaPreview(path),
