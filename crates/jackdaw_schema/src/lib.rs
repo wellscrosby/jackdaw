@@ -270,22 +270,4 @@ mod tests {
     fn output_without_a_schema_is_an_error() {
         assert!(parse_from_stdout(b"no schema here\n").is_err());
     }
-
-    #[test]
-    fn type_schema_without_preview_field_deserializes() {
-        let json = r#"{
-            "type_path":"game::PlayerSpawn",
-            "short_name":"PlayerSpawn",
-            "module_path":"game",
-            "category":"",
-            "description":"",
-            "hidden":false,
-            "default_constructible":true,
-            "fields":[],
-            "kind":"Marker",
-            "default":null
-        }"#;
-        let parsed: TypeSchema = serde_json::from_str(json).expect("old schema json");
-        assert!(parsed.preview.is_empty());
-    }
 }

@@ -161,9 +161,6 @@ impl From<String> for EditorDescription {
 
 /// Viewport preview for a marker component. Attach via
 /// `#[reflect(@EditorPreview::gltf("models/rifle.glb"))]`.
-///
-/// The editor instances this from the project schema. Nothing is
-/// written into the scene file. Play never sees it.
 #[derive(Reflect, Clone, Debug, PartialEq)]
 pub struct EditorPreview(pub Cow<'static, str>);
 
