@@ -132,9 +132,7 @@ mod extract {
     use bevy::ecs::reflect::{ReflectComponent, ReflectResource};
     use bevy::reflect::serde::ReflectSerializer;
     use bevy::reflect::{TypeInfo, TypeRegistration, TypeRegistry};
-    use jackdaw_scene_types::{
-        EditorCategory, EditorDescription, EditorHidden, EditorPreview,
-    };
+    use jackdaw_scene_types::{EditorCategory, EditorDescription, EditorHidden, EditorPreview};
 
     /// Build the schema for this process's reflected types.
     ///
