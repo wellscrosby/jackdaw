@@ -1,9 +1,4 @@
 //! Viewport instances for project components tagged with `@EditorPreview`.
-//!
-//! Project types are schema data in the editor, not live ECS types, so this
-//! walks each scene entity's document type paths, looks up `ProjectTypes`,
-//! and instances a glTF scene. Preview children are never registered in
-//! the scene document.
 
 use bevy::gltf::GltfAssetLabel;
 use bevy::platform::collections::HashMap;
@@ -17,9 +12,7 @@ use crate::{AppState, EditorEntity, EditorHidden, NonSerializable, SkipSerializa
 
 /// Child spawned under a marker so viewport clicks hit the preview visual.
 #[derive(Component)]
-pub(crate) struct SchemaPreview {
-    path: String,
-}
+pub(crate) struct SchemaPreview(String);
 
 pub struct SchemaPreviewPlugin;
 
@@ -56,7 +49,7 @@ fn sync_schema_previews(
 
     let mut desired: HashMap<Entity, String> = HashMap::default();
     for (entity, ast_ref) in &hosts {
-        if has_authored_visual(entity, &brushes, &gltf_sources, &mesh3d) {
+        if brushes.contains(entity) || gltf_sources.contains(entity) || mesh3d.contains(entity) {
             continue;
         }
         let Some(preview) = preview_for_node(&ast, ast_ref.patches_entity, &project_types) else {
@@ -69,7 +62,7 @@ fn sync_schema_previews(
     for (preview_entity, child_of, preview) in &existing {
         let host = child_of.0;
         match desired.get(&host) {
-            Some(path) if path == &preview.path => {
+            Some(path) if path == &preview.0 => {
                 satisfied.insert(host, preview_entity);
             }
             _ => {
@@ -103,19 +96,10 @@ fn preview_for_node(
     None
 }
 
-fn has_authored_visual(
-    entity: Entity,
-    brushes: &Query<(), With<Brush>>,
-    gltf_sources: &Query<(), With<GltfSource>>,
-    mesh3d: &Query<(), With<Mesh3d>>,
-) -> bool {
-    brushes.contains(entity) || gltf_sources.contains(entity) || mesh3d.contains(entity)
-}
-
 fn spawn_preview(commands: &mut Commands, asset_server: &AssetServer, host: Entity, path: String) {
     let handle = asset_server.load(GltfAssetLabel::Scene(0).from_asset(path.clone()));
     commands.spawn((
-        SchemaPreview { path },
+        SchemaPreview(path),
         EditorHidden,
         NonSerializable,
         SkipSerialization,
