@@ -18,7 +18,7 @@ use jackdaw_ui::UiCanvas;
 
 pub use jackdaw_scene_types::{
     Brush, BrushFaceData, CustomProperties, EditorCategory, EditorDescription, EditorHidden,
-    EditorPreview, EditorPreviewKind, GltfSource, PropertyValue, SkipSerialization,
+    EditorPreview, GltfSource, PropertyValue, SkipSerialization,
 };
 
 #[cfg(feature = "pie")]
@@ -38,7 +38,7 @@ pub use schema_cli::{
 
 pub mod prelude {
     pub use crate::{
-        EditorCategory, EditorDescription, EditorHidden, EditorPreview, EditorPreviewKind,
+        EditorCategory, EditorDescription, EditorHidden, EditorPreview,
         JackdawCatalog, JackdawCatalogPath, JackdawPlugin, JackdawSceneMember, JackdawSceneRoot,
         SkipSerialization,
     };
@@ -388,10 +388,8 @@ fn spawn_scene_entities(
     // (catalog spelling), merged with the project catalog. Kept in
     // `BsnSceneAssets` so `apply_component_patch` resolves reference strings.
     let mut local_assets = load_embedded_assets(world, ast, &registry);
-    if let Some(catalog) = world.get_resource::<JackdawCatalog>() {
-        for (name, handle) in catalog.handles.clone() {
-            local_assets.entry(name).or_insert(handle);
-        }
+    for (name, handle) in world.resource::<JackdawCatalog>().handles.clone() {
+        local_assets.entry(name).or_insert(handle);
     }
     let mut scene_assets = bevy::platform::collections::HashMap::default();
     for (name, handle) in &local_assets {
@@ -875,9 +873,8 @@ mod tests {
             .expect("SpawnMarker in schema");
         assert_eq!(
             marker.preview,
-            Some(PreviewSchema::Gltf {
+            Some(PreviewSchema {
                 path: "models/rifle.glb".to_string(),
-                scene: 0
             })
         );
     }

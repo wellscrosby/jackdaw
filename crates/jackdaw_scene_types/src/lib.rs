@@ -166,34 +166,13 @@ impl From<String> for EditorDescription {
 /// written into the scene file. Play never sees it.
 #[derive(Reflect, Clone, Debug, PartialEq)]
 pub struct EditorPreview {
-    pub kind: EditorPreviewKind,
-}
-
-/// Asset the editor instances for [`EditorPreview`].
-#[derive(Reflect, Clone, Debug, PartialEq)]
-pub enum EditorPreviewKind {
-    Gltf {
-        path: Cow<'static, str>,
-        scene: usize,
-    },
+    pub path: Cow<'static, str>,
 }
 
 impl EditorPreview {
     pub const fn gltf(path: &'static str) -> Self {
         Self {
-            kind: EditorPreviewKind::Gltf {
-                path: Cow::Borrowed(path),
-                scene: 0,
-            },
-        }
-    }
-
-    pub const fn gltf_scene(path: &'static str, scene: usize) -> Self {
-        Self {
-            kind: EditorPreviewKind::Gltf {
-                path: Cow::Borrowed(path),
-                scene,
-            },
+            path: Cow::Borrowed(path),
         }
     }
 }

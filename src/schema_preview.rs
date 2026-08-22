@@ -118,8 +118,7 @@ fn spawn_preview(
     host: Entity,
     spec: PreviewSchema,
 ) {
-    let PreviewSchema::Gltf { path, scene } = spec.clone();
-    let handle = asset_server.load(GltfAssetLabel::Scene(scene).from_asset(path));
+    let handle = asset_server.load(GltfAssetLabel::Scene(0).from_asset(spec.path.clone()));
     commands.spawn((
         SchemaPreview { spec },
         EditorHidden,
