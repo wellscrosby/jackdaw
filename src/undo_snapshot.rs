@@ -111,9 +111,7 @@ impl SceneSnapshot for BsnDocumentSnapshot {
         if let Some(mut selection) = world.get_resource_mut::<crate::selection::Selection>() {
             selection.entities.clear();
         }
-        if let Err(err) = world.run_system_cached(crate::hierarchy::clear_all_tree_rows) {
-            error!("Failed to clear tree rows: {err}");
-        }
+        crate::hierarchy::despawn_tree_rows(world);
 
         // Resolve prefab `IsA` references before spawning. The captured text
         // stores inherited descendants sparsely (`PrefabEntityId` plus only

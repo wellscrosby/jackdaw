@@ -4,19 +4,9 @@ use bevy::prelude::*;
 #[derive(Component)]
 pub struct TreeView;
 
-/// Links a tree row UI entity to the source entity it represents.
-///
-/// Multiple `TreeNode`s may point at the same source (one per
-/// container in a multi-instance Outliner setup), so the inverse
-/// `TreeNodeSource` holds a `Vec<Entity>`.
+/// Pointer from a tree row to the scene entity it represents.
 #[derive(Component)]
-#[relationship(relationship_target = TreeNodeSource)]
 pub struct TreeNode(pub Entity);
-
-/// Inverse relationship: source entity -> every tree row referencing it.
-#[derive(Component, Default)]
-#[relationship_target(relationship = TreeNode)]
-pub struct TreeNodeSource(Vec<Entity>);
 
 /// Marker for expand/collapse toggle button
 #[derive(Component)]
@@ -25,6 +15,10 @@ pub struct TreeNodeExpandToggle;
 /// Tracks whether a tree node is expanded
 #[derive(Component, Default)]
 pub struct TreeNodeExpanded(pub bool);
+
+/// Whether this row has children and should show an expand chevron.
+#[derive(Component, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TreeNodeHasChildren(pub bool);
 
 /// The clickable content area of a tree row (contains toggle + label)
 #[derive(Component)]
@@ -48,7 +42,7 @@ pub struct TreeRowChildren;
 #[derive(Component, Default)]
 pub struct TreeChildrenPopulated(pub bool);
 
-/// Classifies a scene entity by type for sorting and colored dot display.
+/// Classifies a scene entity by type for colored dot display.
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EntityCategory {
     Camera,
@@ -93,14 +87,12 @@ pub struct TreeRowVisibilityToggled {
 #[derive(Component)]
 pub struct TreeRowInlineRename;
 
-/// Maps source (scene) entities to their tree row UI entities, keyed
-/// by the tree's container so multiple containers (e.g. two open
-/// Outliner tabs) each track their own copy of the same source.
+/// Reverse lookup from `(container, source)` to the row that shows
+/// that source in that tree.
 ///
-/// Maintained automatically by [`maintain_tree_index`], which walks
-/// each new `TreeNode` up to its `TreeRoot` (matched by the marker
-/// component the consumer adds to the container) and inserts an
-/// entry under that container's key.
+/// Spawners insert here themselves when they need the mapping in the
+/// same pass. Removing [`TreeRoot`] from a container (including on
+/// despawn) drops every mapping keyed by that container.
 #[derive(Resource, Default)]
 pub struct TreeIndex {
     /// `(container, source)` -> tree row entity. The container is the
@@ -171,11 +163,9 @@ impl TreeIndex {
 }
 
 /// Marker the consumer adds to the entity that hosts a tree (every
-/// `Outliner` panel content entity, in jackdaw's case). The widget
-/// crate uses it during ancestor walks in [`maintain_tree_index`] to
-/// find which container a freshly-spawned `TreeNode` belongs to;
-/// `TreeIndex` is keyed by `(container, source)` so multiple
-/// containers can mirror the same source set without colliding.
+/// `Outliner` panel content entity, in jackdaw's case). Used as the
+/// container key in [`TreeIndex`]. Removing this component (including
+/// on despawn) clears that container's mappings.
 #[derive(Component, Default)]
 pub struct TreeRoot;
 
@@ -240,50 +230,12 @@ impl Plugin for TreeViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TreeIndex>()
             .init_resource::<TreeFocused>()
-            .add_systems(PostUpdate, (maintain_tree_index,));
+            .add_observer(unindex_tree_root);
     }
 }
 
-/// Keep `TreeIndex` in sync with `TreeNode` additions and removals.
-///
-/// On a freshly-added node, walks up the parent chain until it hits
-/// an entity carrying [`TreeRoot`] and registers `(root, source) ->
-/// row`. Multiple roots in the same world (e.g. two Outliner tabs)
-/// each maintain their own independent mapping.
-pub fn maintain_tree_index(
-    mut index: ResMut<TreeIndex>,
-    added: Query<(Entity, &TreeNode), Added<TreeNode>>,
-    parents: Query<&ChildOf>,
-    roots: Query<(), With<TreeRoot>>,
-    mut removed: RemovedComponents<TreeNode>,
-) {
-    for (tree_row, tree_node) in &added {
-        let mut current = tree_row;
-        let container = loop {
-            if roots.get(current).is_ok() {
-                break Some(current);
-            }
-            match parents.get(current) {
-                Ok(parent) => current = parent.parent(),
-                Err(_) => break None,
-            }
-        };
-        if let Some(container) = container {
-            index.insert(container, tree_node.0, tree_row);
-        }
-    }
-
-    for removed_entity in removed.read() {
-        // Scan the map to find which (container, source) maps to this
-        // removed tree row. Quadratic in worst case; only runs on
-        // removal frames, not every frame.
-        let key = index
-            .map
-            .iter()
-            .find(|(_, tree_row)| **tree_row == removed_entity)
-            .map(|(k, _)| *k);
-        if let Some((container, source)) = key {
-            index.remove(container, source);
-        }
-    }
+/// Drop every [`TreeIndex`] mapping for a container when its
+/// [`TreeRoot`] is removed, including on despawn.
+fn unindex_tree_root(trigger: On<Remove, TreeRoot>, mut index: ResMut<TreeIndex>) {
+    index.clear_container(trigger.event_target());
 }

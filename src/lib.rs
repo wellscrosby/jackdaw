@@ -483,7 +483,6 @@ impl Plugin for EditorCorePlugin {
                 layout::update_pie_instance_cycle_button,
                 layout::update_window_mode_button,
                 layout::update_live_badge,
-                auto_hide_internal_entities,
                 decorate_timeline_tooltips,
                 discover_gltf_clips,
                 register_animation_entities_in_ast,
@@ -633,45 +632,6 @@ fn flag_menu_dirty_on_menu_entry_remove(
     mut dirty: ResMut<MenuBarDirty>,
 ) {
     dirty.0 = true;
-}
-
-/// Auto-hide unnamed child entities (likely Bevy internals like shadow cascades).
-/// Skips GLTF descendants so they appear in the hierarchy panel.
-fn auto_hide_internal_entities(
-    mut commands: Commands,
-    new_entities: Query<
-        (Entity, Option<&Name>, Option<&ChildOf>),
-        (
-            Added<Transform>,
-            Without<EditorEntity>,
-            Without<EditorHidden>,
-            Without<brush::BrushMeshChunk>,
-        ),
-    >,
-    parent_query: Query<&ChildOf>,
-    gltf_sources: Query<(), With<entity_ops::GltfSource>>,
-) {
-    for (entity, name, parent) in &new_entities {
-        if name.is_none() && parent.is_some() {
-            // Skip GLTF descendants, they'll be shown in the hierarchy.
-            let mut current = entity;
-            let mut is_gltf_descendant = false;
-            while let Ok(&ChildOf(p)) = parent_query.get(current) {
-                if gltf_sources.contains(p) {
-                    is_gltf_descendant = true;
-                    break;
-                }
-                current = p;
-            }
-            if is_gltf_descendant {
-                continue;
-            }
-
-            if let Ok(mut ec) = commands.get_entity(entity) {
-                ec.insert(EditorHidden);
-            }
-        }
-    }
 }
 
 /// Spawn a new keyframe clip on the same target as the currently-

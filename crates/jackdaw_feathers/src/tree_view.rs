@@ -2,9 +2,9 @@ use bevy::{feathers::theme::ThemedText, prelude::*, ui_widgets::observe};
 use bevy_monitors::prelude::{MonitorSelf, Mutation, NotifyChanged};
 use jackdaw_widgets::tree_view::{
     EntityCategory, TreeChildrenPopulated, TreeFocused, TreeNode, TreeNodeExpandToggle,
-    TreeNodeExpanded, TreeRowChildren, TreeRowClicked, TreeRowContent, TreeRowDot, TreeRowDropped,
-    TreeRowDroppedOnRoot, TreeRowLabel, TreeRowSelected, TreeRowStartRename,
-    TreeRowVisibilityToggle, TreeRowVisibilityToggled, TreeView,
+    TreeNodeExpanded, TreeNodeHasChildren, TreeRowChildren, TreeRowClicked, TreeRowContent,
+    TreeRowDot, TreeRowDropped, TreeRowDroppedOnRoot, TreeRowLabel, TreeRowSelected,
+    TreeRowStartRename, TreeRowVisibilityToggle, TreeRowVisibilityToggled, TreeView,
 };
 
 use lucide_icons::Icon;
@@ -60,9 +60,11 @@ pub fn tree_row(
     (
         TreeNode(source),
         TreeNodeExpanded(false),
+        TreeNodeHasChildren(has_children),
         TreeChildrenPopulated(false),
         MonitorSelf,
         NotifyChanged::<TreeNodeExpanded>::default(),
+        NotifyChanged::<TreeNodeHasChildren>::default(),
         Node {
             flex_direction: FlexDirection::Column,
             width: percent(100),
@@ -102,14 +104,14 @@ pub fn tree_row(
         // React to TreeNodeExpanded changes: toggle children visibility + chevron icon
         observe(
             |mutation: On<Mutation<TreeNodeExpanded>>,
-             expanded_query: Query<(&TreeNodeExpanded, &Children)>,
+             expanded_query: Query<(&TreeNodeExpanded, &TreeNodeHasChildren, &Children)>,
              children_container: Query<Entity, With<TreeRowChildren>>,
              content_query: Query<&Children, With<TreeRowContent>>,
              toggle_query: Query<&Children, With<TreeNodeExpandToggle>>,
              mut node_query: Query<&mut Node>,
              mut text_query: Query<&mut Text>| {
                 let entity = mutation.event_target();
-                let Ok((expanded, children)) = expanded_query.get(entity) else {
+                let Ok((expanded, has_children, children)) = expanded_query.get(entity) else {
                     return;
                 };
 
@@ -124,36 +126,69 @@ pub fn tree_row(
                             Display::None
                         };
                     }
+                }
 
-                    // Update chevron: TreeRowContent -> TreeNodeExpandToggle -> Text
-                    if let Ok(content_children) = content_query.get(child) {
-                        for cc in content_children.iter() {
-                            if let Ok(toggle_children) = toggle_query.get(cc) {
-                                for tc in toggle_children.iter() {
-                                    if let Ok(mut text) = text_query.get_mut(tc) {
-                                        // Only rows that already show a chevron
-                                        // flip glyphs; a childless leaf keeps its
-                                        // blank toggle even when the reveal
-                                        // machinery marks it expanded.
-                                        let chevron_right =
-                                            Icon::ChevronRight.unicode().to_string();
-                                        let chevron_down = Icon::ChevronDown.unicode().to_string();
-                                        if text.0 == chevron_right || text.0 == chevron_down {
-                                            text.0 = if expanded.0 {
-                                                chevron_down
-                                            } else {
-                                                chevron_right
-                                            };
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                if has_children.0
+                    && let Some(glyph) =
+                        expand_toggle_glyph(children, &content_query, &toggle_query)
+                    && let Ok(mut text) = text_query.get_mut(glyph)
+                {
+                    text.0 = String::from(if expanded.0 {
+                        Icon::ChevronDown.unicode()
+                    } else {
+                        Icon::ChevronRight.unicode()
+                    });
                 }
             },
         ),
+        // Hide or show chevron based on TreeNodeHasChildren changes.
+        observe(
+            |mutation: On<Mutation<TreeNodeHasChildren>>,
+             rows: Query<(&TreeNodeHasChildren, &TreeNodeExpanded, &Children)>,
+             content_query: Query<&Children, With<TreeRowContent>>,
+             toggle_query: Query<&Children, With<TreeNodeExpandToggle>>,
+             mut text_query: Query<&mut Text>| {
+                let entity = mutation.event_target();
+                let Ok((has_children, expanded, children)) = rows.get(entity) else {
+                    return;
+                };
+                let Some(glyph) = expand_toggle_glyph(children, &content_query, &toggle_query)
+                else {
+                    return;
+                };
+                let Ok(mut text) = text_query.get_mut(glyph) else {
+                    return;
+                };
+                text.0 = if has_children.0 {
+                    String::from(if expanded.0 {
+                        Icon::ChevronDown.unicode()
+                    } else {
+                        Icon::ChevronRight.unicode()
+                    })
+                } else {
+                    String::from(" ")
+                };
+            },
+        ),
     )
+}
+
+fn expand_toggle_glyph(
+    row_children: &Children,
+    content_query: &Query<&Children, With<TreeRowContent>>,
+    toggle_query: &Query<&Children, With<TreeNodeExpandToggle>>,
+) -> Option<Entity> {
+    for child in row_children.iter() {
+        let Ok(content_children) = content_query.get(child) else {
+            continue;
+        };
+        for content_child in content_children.iter() {
+            if let Ok(toggle_children) = toggle_query.get(content_child) {
+                return toggle_children.iter().next();
+            }
+        }
+    }
+    None
 }
 
 fn tree_row_content(
@@ -318,13 +353,10 @@ fn tree_row_content(
 }
 
 fn expand_toggle(has_children: bool, icon_font: &Handle<Font>) -> impl Bundle {
-    let (text, font) = if has_children {
-        (
-            String::from(Icon::ChevronRight.unicode()),
-            icon_font.clone(),
-        )
+    let text = if has_children {
+        String::from(Icon::ChevronRight.unicode())
     } else {
-        (String::from(" "), Handle::default())
+        String::from(" ")
     };
 
     (
@@ -337,7 +369,7 @@ fn expand_toggle(has_children: bool, icon_font: &Handle<Font>) -> impl Bundle {
         children![(
             Text::new(text),
             TextFont {
-                font: font.into(),
+                font: icon_font.clone().into(),
                 font_size: tokens::TEXT_SIZE_SM,
                 ..default()
             },

@@ -4,7 +4,7 @@
 //! entities also appear in the viewport because they are real preview ECS
 //! entities; there is no separate viewport renderer for the running game.)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bevy::ecs::component::ComponentId;
 use bevy::prelude::*;
@@ -18,6 +18,11 @@ use serde::de::{DeserializeSeed, IntoDeserializer};
 /// changes; never serialized.
 #[derive(Component, Debug, Clone, Copy)]
 pub struct PieEphemeral;
+
+/// Marker on a preview entity currently in the focused game's live set
+/// and shown in the Live outliner.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct LivePreview;
 
 /// Maps a streamed entity (game-side bits) to the preview entity representing
 /// it: an authored entity resolved via `SceneNodeId`, or an ephemeral preview
@@ -149,8 +154,75 @@ pub fn revert_preview(world: &mut World) {
     crate::scenes::swap::respawn_scene_from_ast(world);
 }
 
-/// Despawn every ephemeral preview entity and clear the projection maps,
-/// without touching the authored scene.
+/// True when `entity` may carry [`LivePreview`].
+fn live_preview_allowed(world: &World, entity: Entity) -> bool {
+    world.get_entity(entity).is_ok()
+        && world.get::<crate::EditorEntity>(entity).is_none()
+        && world
+            .get::<jackdaw_scene_types::EditorHidden>(entity)
+            .is_none()
+        && world.get::<jackdaw_ui::UiGeneratedPart>(entity).is_none()
+        && world
+            .get::<jackdaw_scene_types::DerivedFaceMesh>(entity)
+            .is_none()
+}
+
+/// Make [`LivePreview`] match the projection map and exclusion components.
+/// Hierarchy treats this marker as "visible in the Live outliner."
+pub(crate) fn sync_live_previews(world: &mut World) {
+    let Some(mapped) = world.get_resource::<PieProjection>().map(|projection| {
+        projection
+            .by_bits
+            .values()
+            .copied()
+            .collect::<HashSet<Entity>>()
+    }) else {
+        return;
+    };
+    let existing: Vec<Entity> = {
+        let mut query = world.query_filtered::<Entity, With<LivePreview>>();
+        query.iter(world).collect()
+    };
+    for preview in mapped.iter().copied() {
+        let want = live_preview_allowed(world, preview);
+        let has = world.get::<LivePreview>(preview).is_some();
+        match (want, has) {
+            (true, false) => {
+                if let Ok(mut entity_mut) = world.get_entity_mut(preview) {
+                    entity_mut.insert(LivePreview);
+                }
+            }
+            (false, true) => {
+                if let Ok(mut entity_mut) = world.get_entity_mut(preview) {
+                    entity_mut.remove::<LivePreview>();
+                }
+            }
+            _ => {}
+        }
+    }
+    for leftover in existing {
+        if mapped.contains(&leftover) {
+            continue;
+        }
+        if let Ok(mut entity_mut) = world.get_entity_mut(leftover) {
+            entity_mut.remove::<LivePreview>();
+        }
+    }
+}
+
+/// Insert `bits -> preview` into the projection map and drop other bits that
+/// alias the same preview. [`LivePreview`] is applied later by
+/// [`sync_live_previews`].
+fn bind_bits(world: &mut World, bits: u64, preview: Entity) {
+    let mut projection = world.resource_mut::<PieProjection>();
+    projection.by_bits.insert(bits, preview);
+    projection
+        .by_bits
+        .retain(|&b, mapped| b == bits || *mapped != preview);
+}
+
+/// Despawn every ephemeral preview entity, clear the projection maps, and
+/// remove [`LivePreview`] from any authored entity still carrying it.
 fn clear_projection(world: &mut World) {
     let ephemerals: Vec<Entity> = {
         let mut q = world.query_filtered::<Entity, With<PieEphemeral>>();
@@ -168,11 +240,11 @@ fn clear_projection(world: &mut World) {
     }
     // Absent when the PIE plugin isn't registered (headless harnesses,
     // editors built without PIE); there is no projection to clear then.
-    let Some(mut projection) = world.get_resource_mut::<PieProjection>() else {
-        return;
-    };
-    projection.by_bits.clear();
-    projection.pending_children.clear();
+    if let Some(mut projection) = world.get_resource_mut::<PieProjection>() {
+        projection.by_bits.clear();
+        projection.pending_children.clear();
+    }
+    sync_live_previews(world);
 }
 
 /// Replay an instance's full buffered snapshot into the preview world.
@@ -271,18 +343,7 @@ pub fn project_event(world: &mut World, event: StateEvent) {
                         .spawn((PieEphemeral, Transform::default(), Visibility::default()))
                         .id()
                 });
-            world
-                .resource_mut::<PieProjection>()
-                .by_bits
-                .insert(bits, preview);
-            // A zone hot-reload respawns an authored node under new bits and
-            // sends the new spawn before the old despawn, so drop any other
-            // bits still aliasing this preview entity. Otherwise a reverse
-            // lookup could resolve dead bits.
-            world
-                .resource_mut::<PieProjection>()
-                .by_bits
-                .retain(|&b, &mut mapped| b == bits || mapped != preview);
+            bind_bits(world, bits, preview);
             // Hierarchy is remapped, not applied: stash ChildOf for after the
             // value components land.
             let mut child_of: Option<serde_json::Value> = None;
@@ -755,6 +816,29 @@ mod tests {
 
         let mapped = world.resource::<PieProjection>().by_bits.get(&2).copied();
         assert_eq!(mapped, Some(ephemeral));
+    }
+
+    #[test]
+    fn live_preview_is_stripped_when_derived_face_mesh_lands() {
+        let mut world = World::new();
+        world.init_resource::<PieProjection>();
+        let preview = world.spawn_empty().id();
+        bind_bits(&mut world, 1, preview);
+        sync_live_previews(&mut world);
+        assert!(world.get::<LivePreview>(preview).is_some());
+        world
+            .entity_mut(preview)
+            .insert(jackdaw_scene_types::DerivedFaceMesh);
+        sync_live_previews(&mut world);
+        assert!(
+            world.get::<LivePreview>(preview).is_none(),
+            "LivePreview is stripped once the excluding component lands"
+        );
+        assert_eq!(
+            world.resource::<PieProjection>().by_bits.get(&1).copied(),
+            Some(preview),
+            "the projection map still points at the preview"
+        );
     }
 
     #[test]

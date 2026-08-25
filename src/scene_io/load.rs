@@ -459,9 +459,7 @@ pub(crate) fn clear_scene_entities(world: &mut World) {
         .entities
         .clear();
 
-    if let Err(err) = world.run_system_cached(crate::hierarchy::clear_all_tree_rows) {
-        error!("Failed to clear tree rows: {err}");
-    }
+    crate::hierarchy::despawn_tree_rows(world);
 
     // Clear undo/redo stacks; they hold entity references that become
     // stale when the scene is dropped. Callers who want to preserve

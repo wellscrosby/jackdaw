@@ -235,9 +235,7 @@ pub fn respawn_from_sparse_text(world: &mut World, sparse_text: &str) {
         .resource_mut::<crate::selection::Selection>()
         .entities
         .clear();
-    if let Err(err) = world.run_system_cached(crate::hierarchy::clear_all_tree_rows) {
-        bevy::log::error!("reload_all_instances: clear_all_tree_rows failed: {err}");
-    }
+    crate::hierarchy::despawn_tree_rows(world);
     if let Err(err) = crate::scene_io::despawn_scene_entities(world) {
         bevy::log::error!("reload_all_instances: despawn_scene_entities failed: {err}");
     }
@@ -254,14 +252,5 @@ pub fn respawn_from_sparse_text(world: &mut World, sparse_text: &str) {
     // dirty-state baselines stay valid and the status bar / per-tab
     // dirty dot keep tracking the correct undo depth.
 
-    // Rebuild the outliner from scratch. Observer-driven row creation
-    // can fire mid-apply (Add<Transform> before IsA / Name land) and pin
-    // the wrong category icon; a clean rebuild classifies every row
-    // against the final archetype.
-    if let Err(err) = world.run_system_cached(crate::hierarchy::clear_all_tree_rows) {
-        bevy::log::warn!("reload_all_instances: clear_all_tree_rows failed: {err}");
-    }
-    if let Err(err) = crate::hierarchy::rebuild_hierarchy(world) {
-        bevy::log::warn!("reload_all_instances: rebuild_hierarchy failed: {err}");
-    }
+    crate::hierarchy::reconcile_outliner(world);
 }

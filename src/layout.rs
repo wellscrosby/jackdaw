@@ -24,7 +24,7 @@ use crate::{
     gizmo_ops::GizmoSpaceToggleOp,
     gizmos::GizmoSpace,
     grid_ops::{GridDecreaseOp, GridIncreaseOp, GridToggleSnapOp},
-    hierarchy::{HierarchyPanel, HierarchyShowAllButton, HierarchyTreeContainer},
+    hierarchy::{HierarchyPanel, HierarchyTreeContainer},
     inspector::Inspector,
     measure_tool::MeasureDistanceOp,
     physics_tool::PhysicsActivateOp,
@@ -588,7 +588,6 @@ fn toolbar_op_button(op_id: &'static str, icon: Icon) -> impl Scene {
 
 pub fn hierarchy_content(icon_font: Handle<Font>) -> impl Bundle {
     let add_entity_icon_font = icon_font.clone();
-    let toggle_font = icon_font.clone();
     (
         HierarchyPanel,
         Node {
@@ -626,37 +625,10 @@ pub fn hierarchy_content(icon_font: Handle<Font>) -> impl Bundle {
                             ),
                         )],
                     ),
-                    pie_view_toggle(toggle_font),
+                    pie_view_toggle(icon_font),
                     live_badge(),
                     pie_instance_cycle_button(),
                     crate::live_edits_ui::live_edits_badge(),
-                    (
-                        HierarchyShowAllButton,
-                        Interaction::default(),
-                        Hovered::default(),
-                        jackdaw_feathers::tooltip::Tooltip::title("Show All Entities")
-                            .with_description(
-                                "Toggle visibility of editor-internal entities and \
-                                 hidden objects in the hierarchy.",
-                            ),
-                        Node {
-                            width: px(24.0),
-                            height: px(24.0),
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            border_radius: BorderRadius::all(px(tokens::BORDER_RADIUS_SM)),
-                            ..Default::default()
-                        },
-                        children![(
-                            Text::new(String::from(Icon::Eye.unicode())),
-                            TextFont {
-                                font: icon_font.into(),
-                                font_size: tokens::TEXT_SIZE,
-                                ..Default::default()
-                            },
-                            TextColor(tokens::TEXT_SECONDARY),
-                        )],
-                    ),
                 ],
             ),
             (
@@ -1277,7 +1249,7 @@ fn pie_view_segment(
                     // Drop the selection before the teardown runs so the
                     // `On<Remove, Selected>` -> `on_entity_deselected`
                     // handler never tries to clear `TreeRowSelected` off a
-                    // row that `teardown_outliner_rows` already despawned.
+                    // row that `despawn_tree_rows` already despawned.
                     crate::selection::clear_selection_in_world(world);
                     match new_mode {
                         PieViewMode::Live => {

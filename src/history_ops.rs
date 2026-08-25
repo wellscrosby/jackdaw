@@ -85,7 +85,7 @@ pub(crate) fn history_redo(_: In<OperatorParameters>, mut commands: Commands) ->
 /// rows re-resolve their icons, and touch every brush's change tick so the
 /// viewport mesh cache and edit overlays regenerate from the restored topology.
 fn refresh_views_after_history(world: &mut World) {
-    let _ = crate::hierarchy::rebuild_hierarchy(world);
+    crate::hierarchy::reconcile_outliner(world);
     let mut brushes = world.query::<&mut jackdaw_scene_types::Brush>();
     for mut brush in brushes.iter_mut(world) {
         brush.set_changed();

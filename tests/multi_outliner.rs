@@ -1,14 +1,15 @@
 //! Multi-instance Outliner: two `HierarchyTreeContainer`s should both
 //! reflect every scene-graph change in lockstep.
 //!
-//! Pins three contracts the per-`(container, source)` `TreeIndex`
-//! refactor introduced:
+//! Pins the per-`(container, source)` `TreeIndex` contracts:
 //!  - adding a new root scene entity spawns one row in every container,
 //!    not zero (single-instance fallthrough) and not two in any one
 //!    panel (the duplicate-row regression);
 //!  - reparenting a scene entity moves its row under the new parent's
 //!    `TreeRowChildren` in every container;
-//!  - despawning the source removes the row in every container.
+//!  - despawning the source removes the row in every container;
+//!  - Live rows follow the projection map, including rerooting a live
+//!    child when its parent leaves the live set.
 
 use bevy::prelude::*;
 use jackdaw::hierarchy::HierarchyTreeContainer;
@@ -30,6 +31,21 @@ fn spawn_outliner_container(world: &mut World) -> Entity {
         .id()
 }
 
+fn spawn_named_document_root(world: &mut World, name: &str) -> Entity {
+    let entity = world
+        .spawn((Name::new(name.to_string()), Transform::default()))
+        .id();
+    jackdaw::scene_io::register_entity_in_ast(world, entity);
+    entity
+}
+
+fn map_live(world: &mut World, bits: u64, preview: Entity) {
+    world
+        .resource_mut::<jackdaw::pie_projection::PieProjection>()
+        .by_bits
+        .insert(bits, preview);
+}
+
 #[test]
 fn add_root_entity_spawns_one_row_per_container() {
     let mut app = util::editor_test_app();
@@ -38,7 +54,7 @@ fn add_root_entity_spawns_one_row_per_container() {
     let outliner_a = spawn_outliner_container(world);
     let outliner_b = spawn_outliner_container(world);
 
-    let entity = world.spawn((Name::new("Brush"), Transform::default())).id();
+    let entity = spawn_named_document_root(world, "Brush");
 
     // Flush the queued `commands` from the `On<Add, ...>` observers.
     app.update();
@@ -77,10 +93,8 @@ fn reparent_scene_entity_moves_row_in_every_outliner() {
     let outliner_a = spawn_outliner_container(world);
     let outliner_b = spawn_outliner_container(world);
 
-    let parent = world
-        .spawn((Name::new("Parent"), Transform::default()))
-        .id();
-    let child = world.spawn((Name::new("Child"), Transform::default())).id();
+    let parent = spawn_named_document_root(world, "Parent");
+    let child = spawn_named_document_root(world, "Child");
     app.update();
 
     // Sanity: both containers initially see both as roots.
@@ -93,10 +107,9 @@ fn reparent_scene_entity_moves_row_in_every_outliner() {
         }
     }
 
-    // Mark the parent as having children populated so the reparent
-    // observer reseats existing rows instead of treating it as a
-    // not-yet-expanded subtree. (`spawn_single_tree_row` defaults
-    // `TreeChildrenPopulated(false)`.)
+    // Mark the parent as populated so reconcile reseats the child
+    // under it instead of treating it as a collapsed subtree.
+    // (`spawn_single_tree_row` defaults `TreeChildrenPopulated(false)`.)
     {
         let mut q = world.query::<(
             &TreeNode,
@@ -109,8 +122,18 @@ fn reparent_scene_entity_moves_row_in_every_outliner() {
         }
     }
 
-    // Reparent child under parent.
-    world.entity_mut(child).insert(ChildOf(parent));
+    {
+        let world = app.world_mut();
+        jackdaw::commands::set_hierarchy_location(
+            world,
+            child,
+            jackdaw::commands::HierarchyLocation {
+                parent: Some(parent),
+                index: usize::MAX,
+                slot: None,
+            },
+        );
+    }
     app.update();
 
     let world = app.world_mut();
@@ -152,7 +175,7 @@ fn despawn_scene_entity_drops_row_in_every_outliner() {
     let outliner_a = spawn_outliner_container(world);
     let outliner_b = spawn_outliner_container(world);
 
-    let entity = world.spawn((Name::new("Brush"), Transform::default())).id();
+    let entity = spawn_named_document_root(world, "Brush");
     app.update();
 
     let world = app.world_mut();
@@ -187,6 +210,7 @@ fn ui_canvas_and_authored_children_appear_but_generated_parts_do_not() {
         .world_mut()
         .spawn((Name::new("UI Canvas"), UiCanvas::default()))
         .id();
+    jackdaw::scene_io::register_entity_in_ast(app.world_mut(), canvas);
     app.update();
 
     {
@@ -206,6 +230,7 @@ fn ui_canvas_and_authored_children_appear_but_generated_parts_do_not() {
         .world_mut()
         .spawn((Name::new("Button"), UiButton::default(), ChildOf(canvas)))
         .id();
+    jackdaw::scene_io::register_entity_in_ast(app.world_mut(), button);
     app.update();
     app.update();
 
@@ -244,5 +269,59 @@ fn ui_canvas_and_authored_children_appear_but_generated_parts_do_not() {
     assert!(
         !world.resource::<TreeIndex>().contains_anywhere(generated),
         "implementation-owned widget parts must not leak into the authored outliner"
+    );
+}
+
+#[test]
+fn stripping_live_preview_from_parent_reroots_live_children() {
+    let mut app = util::editor_test_app();
+    app.world_mut()
+        .insert_resource(jackdaw::pie_mirror::PieViewMode::Live);
+    let outliner = spawn_outliner_container(app.world_mut());
+
+    let parent = app.world_mut().spawn_empty().id();
+    map_live(app.world_mut(), 1, parent);
+    app.update();
+
+    {
+        let world = app.world_mut();
+        let mut rows = world.query::<(
+            &TreeNode,
+            &mut jackdaw_widgets::tree_view::TreeChildrenPopulated,
+        )>();
+        for (row, mut populated) in rows.iter_mut(world) {
+            if row.0 == parent {
+                populated.0 = true;
+            }
+        }
+    }
+
+    let child = app.world_mut().spawn(ChildOf(parent)).id();
+    map_live(app.world_mut(), 2, child);
+    app.update();
+
+    {
+        let index = app.world().resource::<TreeIndex>();
+        assert!(index.contains(outliner, parent));
+        assert!(
+            index.contains(outliner, child),
+            "an expanded live parent lists its live child"
+        );
+    }
+
+    app.world_mut()
+        .resource_mut::<jackdaw::pie_projection::PieProjection>()
+        .by_bits
+        .remove(&1);
+    app.update();
+
+    let index = app.world().resource::<TreeIndex>();
+    assert!(
+        !index.contains_anywhere(parent),
+        "parent leaves the Live tree with its marker"
+    );
+    assert!(
+        index.contains(outliner, child),
+        "live child of a now-non-live parent becomes a Live root"
     );
 }
