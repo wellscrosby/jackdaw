@@ -517,7 +517,9 @@ pub fn despawn_tree_rows(world: &mut World) {
             }
         }
     }
-    world.resource_mut::<TreeIndex>().clear();
+    if let Some(mut index) = world.get_resource_mut::<TreeIndex>() {
+        index.clear();
+    }
 }
 
 /// Drop every Outliner row and reconcile when Scene/Live view mode changes.
