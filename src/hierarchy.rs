@@ -520,11 +520,7 @@ pub fn despawn_tree_rows(world: &mut World) {
     world.resource_mut::<TreeIndex>().clear();
 }
 
-/// Rebuild the outliner on view-mode transitions. When the mode changes to
-/// Scene, tear down any ephemeral rows left from Live and rebuild from the
-/// preview ECS. When the mode changes to Live, the preview ECS already holds
-/// the live overlay (projected by `drain_game_events`), so a normal rebuild
-/// picks it up without special handling.
+/// Drop every Outliner row and reconcile when Scene/Live view mode changes.
 fn sync_pie_live_outliner(mode: Res<crate::pie_mirror::PieViewMode>, mut commands: Commands) {
     if !mode.is_changed() {
         return;
@@ -539,7 +535,8 @@ fn sync_pie_live_outliner(mode: Res<crate::pie_mirror::PieViewMode>, mut command
 /// row can be spawned in an Outliner container. Walks `ChildOf` from `target`
 /// up to a root, collecting ancestors; returns them ordered from the highest
 /// ancestor down to `target`'s direct parent. `target` itself is excluded.
-/// Expanding each in order spawns the next level until `target`'s row exists.
+/// Expanding each in order marks it populated so reconcile can spawn the next
+/// level until `target`'s row exists.
 fn reveal_path(world: &World, target: Entity) -> Vec<Entity> {
     let mut chain = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -569,8 +566,8 @@ pub(crate) struct RevealTarget {
 
 /// When the primary selection lands on an entity whose Live-tree row has not
 /// been spawned yet (rows spawn lazily on expansion), arm [`RevealTarget`] so
-/// the driver expands its ancestors until the row appears. Only relevant in
-/// Live mode; in Scene mode the rebuild already covers the authored tree.
+/// the driver expands its ancestors until the row appears. Only armed in
+/// Live mode.
 fn watch_selection_for_reveal(
     selection: Res<Selection>,
     mode: Res<crate::pie_mirror::PieViewMode>,
@@ -619,8 +616,8 @@ fn drive_reveal_target(world: &mut World) {
     world.resource_mut::<RevealTarget>().frames_left = frames_left - 1;
 
     // Highest-to-lowest ancestor chain. Expand the first ancestor that has a
-    // row somewhere but is not yet expanded; mutating `TreeNodeExpanded` fires
-    // `on_tree_node_expanded`, which spawns the next level on the next flush.
+    // row somewhere but is not yet expanded. That marks the row populated so
+    // the next reconcile spawns the next level.
     let path = reveal_path(world, target);
     let mut row_to_expand = None;
     'outer: for ancestor in path {
@@ -700,7 +697,7 @@ fn setup_name_watcher(mut commands: Commands) {
 /// Startup. `bevy_monitors`'s add-hook queues a command that calls
 /// `world.schedule_scope(Update, ...)` the first time any entity with
 /// `NotifyChanged<C>` spawns. If that first spawn happens while `Update`
-/// is already executing (e.g. `reconcile_tree` spawning scene tree rows
+/// is already executing (e.g. `reconcile_outliner` spawning scene tree rows
 /// on workspace switch), the queued command panics with "Schedule
 /// Update not found". Registering watcher entities here in Startup
 /// flushes the hooks before any `Update` tick runs, so subsequent spawns
@@ -753,10 +750,10 @@ fn first_child_with<C: Component>(world: &World, parent: Entity) -> Option<Entit
 /// Re-derive the icon glyph for every Outliner row of `entity`. A brush's icon
 /// is registered against its `Brush` component (`registered_icon`); the
 /// duplicate path streams a brush's components into the world one at a time
-/// through the scene, so the row can be spawned (when `Transform` lands) before
-/// `Brush` arrives, leaving the fallback dot. Refreshing the glyph here mirrors
-/// how the label refreshes on a `Name` change. Only the glyph changes: a brush
-/// root's category (and so its icon color) does not depend on `Brush`.
+/// through the scene, so reconcile can spawn the row before `Brush` arrives,
+/// leaving the fallback dot. Refreshing the glyph here mirrors how the label
+/// refreshes on a `Name` change. Only the glyph changes: a brush root's
+/// category (and so its icon color) does not depend on `Brush`.
 fn refresh_row_icon(world: &mut World, entity: Entity) {
     let Some(icon) = registered_icon(world, entity) else {
         return;
