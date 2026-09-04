@@ -117,6 +117,7 @@ pub mod terrain;
 pub(crate) mod timestamps;
 pub mod tool_ops;
 pub mod transform_ops;
+pub mod type_metadata;
 pub mod ui_authoring;
 pub mod ui_canvas;
 pub mod ui_projection;
@@ -353,6 +354,7 @@ impl Plugin for EditorCorePlugin {
         .add_plugins((
             viewport_overlays::ViewportOverlaysPlugin,
             schema_preview::SchemaPreviewPlugin,
+            type_metadata::TypeMetadataPlugin,
             view_modes::ViewModesPlugin,
             status_bar::StatusBarPlugin,
             build_panel::BuildPanelPlugin,
