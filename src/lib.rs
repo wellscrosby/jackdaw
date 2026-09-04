@@ -91,6 +91,7 @@ pub mod pie_mirror;
 pub mod pie_projection;
 pub mod prefab;
 pub mod preflight;
+pub(crate) mod preview_model;
 pub mod project;
 pub mod project_build;
 pub mod project_files;
