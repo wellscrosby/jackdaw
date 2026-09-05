@@ -848,11 +848,13 @@ pub(crate) struct ComponentDisplaySpec<'a> {
 }
 
 /// Entities spawned by [`spawn_component_display`]. `section` is the card
-/// root; `body` is where field widgets go.
+/// root; `body` is where field widgets go; `type_settings` sits between
+/// header and body so type-settings chrome can span the header width.
 pub(crate) struct ComponentDisplayCard {
     pub section: Entity,
     pub body: Entity,
     pub header: Entity,
+    pub type_settings: Entity,
 }
 
 pub(crate) fn spawn_component_display(
@@ -909,6 +911,20 @@ pub(crate) fn spawn_component_display(
     let header = commands
         .spawn_scene(pane_header())
         .insert((CollapsibleHeader, ChildOf(section_entity)))
+        .id();
+
+    let type_settings = commands
+        .spawn((
+            CollapsibleBody,
+            Node {
+                flex_direction: FlexDirection::Column,
+                width: Val::Percent(100.0),
+                display: body_display,
+                flex_shrink: 0.0,
+                ..Default::default()
+            },
+            ChildOf(section_entity),
+        ))
         .id();
 
     let body_entity = commands
@@ -1164,6 +1180,7 @@ pub(crate) fn spawn_component_display(
         section: section_entity,
         body: body_entity,
         header,
+        type_settings,
     }
 }
 
