@@ -115,6 +115,7 @@ impl Plugin for HierarchyPlugin {
                 (
                     crate::pie_projection::sync_live_previews,
                     reconcile_outliner,
+                    sync_outliner_selection_highlights,
                 )
                     .chain(),
             )
@@ -123,8 +124,6 @@ impl Plugin for HierarchyPlugin {
             .add_observer(on_tree_row_clicked)
             .add_observer(on_name_changed)
             .add_observer(on_brush_icon_ready)
-            .add_observer(on_entity_selected)
-            .add_observer(on_entity_deselected)
             .add_observer(on_tree_row_dropped)
             .add_observer(on_tree_row_dropped_on_root)
             .add_observer(on_tree_row_start_rename)
@@ -569,14 +568,15 @@ pub(crate) struct RevealTarget {
 /// When the primary selection lands on an entity whose Live-tree row has not
 /// been spawned yet (rows spawn lazily on expansion), arm [`RevealTarget`] so
 /// the driver expands its ancestors until the row appears. Only armed in
-/// Live mode.
+/// Live mode. Also runs when the tree or view mode changes, so entering Live
+/// or spawning rows after selection is already set still arms the reveal.
 fn watch_selection_for_reveal(
     selection: Res<Selection>,
     mode: Res<crate::pie_mirror::PieViewMode>,
     tree_index: Res<TreeIndex>,
     mut reveal: ResMut<RevealTarget>,
 ) {
-    if !selection.is_changed() {
+    if !selection.is_changed() && !tree_index.is_changed() && !mode.is_changed() {
         return;
     }
     if *mode != crate::pie_mirror::PieViewMode::Live {
@@ -857,66 +857,54 @@ fn on_tree_row_clicked(
     }
 }
 
-/// When Selected is added, highlight the corresponding row in every
-/// Outliner panel.
-fn on_entity_selected(
-    trigger: On<Add, Selected>,
+/// Paint `TreeRowSelected` and selected colors on every Outliner row whose
+/// source entity is in [`Selection`]. Unselected rows get [`ROW_BG`] and no
+/// border.
+fn sync_outliner_selection_highlights(
     mut commands: Commands,
+    selection: Res<Selection>,
     tree_index: Res<TreeIndex>,
+    containers: Query<Entity, With<HierarchyTreeContainer>>,
     tree_nodes: Query<&Children, With<TreeNode>>,
-    tree_row_contents: Query<Entity, With<TreeRowContent>>,
-    mut bg_query: Query<&mut BackgroundColor>,
-    mut border_query: Query<&mut BorderColor>,
+    mut contents: Query<
+        (
+            Entity,
+            Has<TreeRowSelected>,
+            &mut BackgroundColor,
+            &mut BorderColor,
+        ),
+        With<TreeRowContent>,
+    >,
 ) {
-    let entity = trigger.event_target();
-
-    for (_container, tree_entity) in tree_index.rows_for_source(entity) {
-        let Ok(children) = tree_nodes.get(tree_entity) else {
-            continue;
-        };
-        for child in children.iter() {
-            if tree_row_contents.contains(child) {
-                if let Ok(mut ec) = commands.get_entity(child) {
-                    ec.insert(TreeRowSelected);
-                }
-                if let Ok(mut bg) = bg_query.get_mut(child) {
-                    bg.0 = tokens::SELECTED_BG;
-                }
-                if let Ok(mut border) = border_query.get_mut(child) {
-                    *border = BorderColor::all(tokens::SELECTED_BORDER);
-                }
-                break;
-            }
-        }
+    if !selection.is_changed() && !tree_index.is_changed() {
+        return;
     }
-}
-
-/// When Selected is removed, unhighlight the corresponding row in
-/// every Outliner panel.
-fn on_entity_deselected(
-    trigger: On<Remove, Selected>,
-    mut commands: Commands,
-    tree_index: Res<TreeIndex>,
-    tree_nodes: Query<&Children, With<TreeNode>>,
-    tree_row_contents: Query<Entity, With<TreeRowContent>>,
-    mut bg_query: Query<&mut BackgroundColor>,
-    mut border_query: Query<&mut BorderColor>,
-) {
-    let entity = trigger.event_target();
-
-    for (_container, tree_entity) in tree_index.rows_for_source(entity) {
-        let Ok(children) = tree_nodes.get(tree_entity) else {
-            continue;
-        };
-        for child in children.iter() {
-            if tree_row_contents.contains(child) {
-                if let Ok(mut ec) = commands.get_entity(child) {
-                    ec.remove::<TreeRowSelected>();
+    for container in &containers {
+        let rows: Vec<(Entity, Entity)> = tree_index.rows_in(container).collect();
+        for (source, row) in rows {
+            let want = selection.is_selected(source);
+            let Ok(children) = tree_nodes.get(row) else {
+                continue;
+            };
+            for child in children.iter() {
+                let Ok((content, has_selected, mut bg, mut border)) = contents.get_mut(child)
+                else {
+                    continue;
+                };
+                if has_selected == want {
+                    break;
                 }
-                if let Ok(mut bg) = bg_query.get_mut(child) {
+                if want {
+                    if let Ok(mut ec) = commands.get_entity(content) {
+                        ec.insert(TreeRowSelected);
+                    }
+                    bg.0 = tokens::SELECTED_BG;
+                    *border = BorderColor::all(tokens::SELECTED_BORDER);
+                } else {
+                    if let Ok(mut ec) = commands.get_entity(content) {
+                        ec.remove::<TreeRowSelected>();
+                    }
                     bg.0 = ROW_BG;
-                }
-                if let Ok(mut border) = border_query.get_mut(child) {
                     *border = BorderColor::all(Color::NONE);
                 }
                 break;
