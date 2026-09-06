@@ -21,7 +21,6 @@ pub use load::load_scene_from_file;
 pub(crate) use load::{
     SidecarImport, clear_scene_entities, despawn_scene_entities, import_terrain_sidecars,
 };
-pub(crate) use registration::entity_by_scene_node_id;
 pub use registration::{register_entities_in_ast, register_entity_in_ast};
 pub use save::{
     SaveOutcome, emit_bsn_scene_with_inline_assets, retarget_active_scene, save_layout_to_project,
